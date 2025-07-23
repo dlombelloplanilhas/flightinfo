@@ -14,7 +14,15 @@ app.get('/flights', async (req, res) => {
 
   try {
     const url = `https://www.flightaware.com/live/airport/${airport}`;
-    const response = await axios.get(url);
+
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+      }
+    });
+
     const $ = cheerio.load(response.data);
 
     const departuresSection = $('#departures-board');
@@ -31,7 +39,7 @@ app.get('/flights', async (req, res) => {
       const values = tds.map((i, td) => $(td).text().trim().replace(/\s+/g, ' ')).get();
 
       const voo = {
-        flightNumber: values[0] || "",
+        aircraftId: values[0] || "",
         aircraftType: values[1] || "",
         destination: values[2] || "",
         departureTime: values[3] || "",
@@ -39,7 +47,7 @@ app.get('/flights', async (req, res) => {
         arrivalTime: values[5] || ""
       };
 
-      if (!aircraft || voo.flightNumber.includes(aircraft.toUpperCase())) {
+      if (!aircraft || voo.aircraftId.includes(aircraft.toUpperCase())) {
         voos.push(voo);
       }
     });
