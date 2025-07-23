@@ -9,10 +9,15 @@ app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}/flights?airport=SBME`);
 });
 
+app.get('/', async (req, res) => {
+  const { airport, aircraft } = req.query;
+  let result = { exemple: 'https://flightinfo.onrender.com/flights?airport=SBME&aircraft=PROHR' };
+  res.json(result);
+});
 
 app.get('/flights', async (req, res) => {
   const { airport, aircraft } = req.query;
-  let result = { need: '/flights?airport=SBME&aircraft=PROHR' };
+  let result = { exemple: 'https://flightinfo.onrender.com/flights?airport=SBME&aircraft=PROHR' };
 
   try {
     if (airport) {
