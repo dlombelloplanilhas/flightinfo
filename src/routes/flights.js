@@ -67,25 +67,31 @@ async function getByAirport(airport, aircraft) {
 
       const [
         aircraftId = "", aircraftType = "", destination = "",
-        departureTime = "", status = "", arrivalTime = ""
+        departure = "", status = "", arrival = ""
       ] = values;
 
       const normalizedId = aircraftId.replace(/-/g, '').toUpperCase();
 
       if (!aircraft || normalizedId.includes(aircraft)) {
-        flights.push({
-          aircraftId: normalizedId,
-          aircraftType,
-          destination,
-          departureTime,
-          status,
-          arrivalTime
-        });
+
+        let duration = arrival && !arrival.includes('unknown') ? calcularDuracaoVoo(departure, arrival) : "";
+
+        if (aircraftId) {
+          flights.push({
+            aircraftId: normalizedId,
+            aircraftType,
+            destination,
+            departure,
+            arrival,
+            duration,
+            status,
+          });
+        }
       }
     });
 
     return { source: url, data: flights };
-    
+
   } catch (error) {
     console.error('Erro ao buscar dados do aeroporto:', error);
     return { error: "Erro ao buscar dados do FlightAware." };
@@ -124,7 +130,7 @@ async function getByAircraft(aircraft) {
         departure,
         arrival,
         duration,
-        status
+        status,
       });
     });
 
