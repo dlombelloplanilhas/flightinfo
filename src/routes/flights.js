@@ -74,7 +74,7 @@ async function getByAirport(airport, aircraft) {
 
       if (!aircraft || normalizedId.includes(aircraft)) {
 
-        let duration = arrival && !arrival.includes('unknown') ? calcularDuracaoVoo(departure, arrival) : "";
+        const duration = calcularDuracaoVoo(departure, arrival);
 
         if (aircraftId) {
           flights.push({
@@ -159,6 +159,10 @@ function unificarVoosOffshore(flights) {
     const pousouEmPlataforma = proximo && proximo.arrival.includes("Last seen");
 
     if (decolouDePlataforma && pousouEmPlataforma) {
+
+      const duration = atual.duration == "En Route" ? atual.duration :
+        calcularDuracaoVoo(proximo.departure.replace("First seen ", ""), atual.arrival.replace("Last seen ", ""), atual.date)
+
       // Criar voo unificado
       const vooUnificado = {
         date: atual.date,
@@ -167,7 +171,7 @@ function unificarVoosOffshore(flights) {
         destination: atual.destination,
         departure: proximo.departure.replace("First seen ", ""),
         arrival: atual.arrival.replace("Last seen ", ""),
-        duration: calcularDuracaoVoo(proximo.departure.replace("First seen ", ""), atual.arrival.replace("Last seen ", ""), atual.date),
+        duration: duration,
         status: atual.status || proximo.status
       };
 
@@ -192,6 +196,14 @@ function unificarVoosOffshore(flights) {
 
 function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YYYY')) {
   const formato = 'DD-MMM-YYYY hh:mma ZZ';
+
+  if (!arrival || /unknown/i.test(arrival)) {
+    return "";
+  }
+
+  if (/en route/i.test(arrival)) {
+    return "En Route";
+  }
 
   const partida = dayjs(`${date} ${departure}`, formato);
   const chegada = dayjs(`${date} ${arrival}`, formato);
