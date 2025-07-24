@@ -84,7 +84,8 @@ async function getByAirport(airport, aircraft) {
       }
     });
 
-    return flights;
+    return { source: url, data: flights };
+    
   } catch (error) {
     console.error('Erro ao buscar dados do aeroporto:', error);
     return { error: "Erro ao buscar dados do FlightAware." };
@@ -127,7 +128,8 @@ async function getByAircraft(aircraft) {
       });
     });
 
-    return unificarVoosOffshore(flights);
+    return { source: url, data: unificarVoosOffshore(flights) };
+
   } catch (error) {
     console.error('Erro ao buscar dados do histórico da aeronave:', error);
     return { error: "Erro ao buscar dados do histórico da aeronave." };
