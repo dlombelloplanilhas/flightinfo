@@ -6,7 +6,10 @@ const router = express.Router();
 
 const dayjs = require('dayjs');
 const customParseFormat = require('dayjs/plugin/customParseFormat');
+const utc = require('dayjs/plugin/utc');
+
 dayjs.extend(customParseFormat);
+dayjs.extend(utc);
 
 const axiosHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/91.0.4472.124 Safari/537.36',
@@ -198,7 +201,7 @@ function unificarVoosOffshore(flights) {
     if (!pousouEmAeroporto && vooUnificado.origin) {
       vooUnificado.destination = vooAtual.destination
       vooUnificado.arrival = vooAtual.arrival
-      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival, vooUnificado.date)
+      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival)
       vooUnificado.status = vooAtual.status
       continue;
     }
@@ -206,7 +209,7 @@ function unificarVoosOffshore(flights) {
     if (pousouEmAeroporto && vooUnificado.origin) {
       vooUnificado.destination = vooAtual.destination
       vooUnificado.arrival = vooAtual.arrival
-      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival, vooUnificado.date)
+      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival)
       vooUnificado.status = vooAtual.status
       resultado.push(vooUnificado);
       vooUnificado = {}
@@ -219,17 +222,8 @@ function unificarVoosOffshore(flights) {
   return resultado.reverse()
 }
 
-/**
- * Calcula a duração do voo baseado em departure e arrival
- * @param {string} departure - Ex: "09:45AM -03"
- * @param {string} arrival - Ex: "11:07AM -03"
- * @param {string} date - Ex: "23-Jul-2025" (opcional, default = hoje)
- * @returns {string} duração no formato "H:MM"
- */
 
 function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YYYY')) {
-  const formato = 'DD-MMM-YYYY hh:mma ZZ';
-
   if (!arrival || /unknown/i.test(arrival)) {
     return "";
   }
@@ -238,17 +232,47 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
     return "En Route";
   }
 
-  const partida = dayjs(`${date} ${departure}`, formato);
-  const chegada = dayjs(`${date} ${arrival}`, formato);
+  // Função para converter AM/PM para 24h
+  function convertTo24h(timeStr) {
+    const [time, period] = timeStr.split(/([AP]M)/i);
+    const [hours, minutes] = time.split(':');
+    let hour24 = parseInt(hours);
 
-  // Se chegada for antes da partida, considera que cruzou a meia-noite
-  const chegadaCorrigida = chegada.isBefore(partida) ? chegada.add(1, 'day') : chegada;
+    if (period.toUpperCase() === 'PM' && hour24 !== 12) {
+      hour24 += 12;
+    } else if (period.toUpperCase() === 'AM' && hour24 === 12) {
+      hour24 = 0;
+    }
 
-  const minutos = chegadaCorrigida.diff(partida, 'minute');
-  const horas = Math.floor(minutos / 60);
-  const minutosRestantes = String(minutos % 60).padStart(2, '0');
+    return `${hour24.toString().padStart(2, '0')}:${minutes}`;
+  }
 
-  return `${horas}:${minutosRestantes}`;
+  // Separar horário e offset
+  const [departureTime, departureOffset] = departure.split(/ ([-+]\d{2})$/).filter(Boolean);
+  const [arrivalTime, arrivalOffset] = arrival.split(/ ([-+]\d{2})$/).filter(Boolean);
+
+  // Converter para formato 24h
+  const departureTime24h = convertTo24h(departureTime);
+  const arrivalTime24h = convertTo24h(arrivalTime);
+
+  const offsetDep = parseInt(departureOffset) || 0;
+  const offsetArr = parseInt(arrivalOffset) || 0;
+
+  // Criar datetimes em UTC usando formato 24h
+  const formato24h = 'DD-MMM-YYYY HH:mm';
+  let partidaUTC = dayjs.utc(`${date} ${departureTime24h}`, formato24h).subtract(offsetDep, 'hour');
+  let chegadaUTC = dayjs.utc(`${date} ${arrivalTime24h}`, formato24h).subtract(offsetArr, 'hour');
+
+  // Se a chegada UTC for antes da partida UTC, adiciona 1 dia
+  if (chegadaUTC.isBefore(partidaUTC)) {
+    chegadaUTC = chegadaUTC.add(1, 'day');
+  }
+
+  const duracaoMin = chegadaUTC.diff(partidaUTC, 'minute');
+  const horas = Math.floor(duracaoMin / 60);
+  const minutos = String(duracaoMin % 60).padStart(2, '0');
+
+  return `${horas}:${minutos}`;
 }
 
 module.exports = router;
