@@ -156,28 +156,50 @@ function unificarVoosOffshore(flights) {
     const vooAtual = flights[i];
     if (!vooAtual.origin) { continue }
 
-    const decolouDeAeroporto = vooAtual.origin && !vooAtual.origin.includes("Near");
-    const pousouEmAeroporto = vooAtual.destination && !vooAtual.destination.includes("Near") && !vooAtual.destination.includes("Plataforma")
-
-    vooAtual.departure = vooAtual.departure.replace("First seen ", "")
-    vooAtual.arrival = vooAtual.arrival.replace("Last seen ", "")
-
-    if (vooAtual.duration == "En Route") {
-      resultado.push(vooAtual)
-      continue;
+    function isAeroporto(valor) {
+      if (!valor) return false;
+      const texto = valor.toLowerCase();
+      return !texto.includes("near") && !texto.includes("plataforma");
     }
 
-    if (decolouDeAeroporto && pousouEmAeroporto) {
+    const decolouDeAeroporto = isAeroporto(vooAtual.origin);
+    const pousouEmAeroporto = isAeroporto(vooAtual.destination);
+
+    vooAtual.departure = vooAtual.departure.replace("First seen ", "").replace("(?)", "").trim()
+    vooAtual.arrival = vooAtual.arrival.replace("Last seen ", "").replace("(?)", "").trim()
+
+    if (decolouDeAeroporto && vooUnificado.origin) {
+      resultado.push(vooUnificado);
+      vooUnificado = {}
+    }
+
+    if (vooUnificado.origin && (vooAtual.date != vooUnificado.date)) {
+      resultado.push(vooUnificado);
+      vooUnificado = {}
+    }
+
+    if (
+      (vooAtual.duration == "En Route") ||
+      (decolouDeAeroporto && pousouEmAeroporto) ||
+      (!decolouDeAeroporto && vooAtual.duration > '1:00')
+    ) {
       resultado.push(vooAtual);
       continue;
     }
 
-    if (decolouDeAeroporto) {
+    if (
+      (decolouDeAeroporto) ||
+      (!decolouDeAeroporto && !vooUnificado.origin)
+    ) {
       vooUnificado = vooAtual
       continue;
     }
 
-    if (!decolouDeAeroporto && !pousouEmAeroporto) {
+    if (!pousouEmAeroporto && vooUnificado.origin) {
+      vooUnificado.destination = vooAtual.destination
+      vooUnificado.arrival = vooAtual.arrival
+      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival, vooUnificado.date)
+      vooUnificado.status = vooAtual.status
       continue;
     }
 
