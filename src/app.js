@@ -1,7 +1,9 @@
 const express = require('express');
 const flightsRouter = require('./routes/flights');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
 
 // Middleware global (opcional)
 app.use(express.json());
