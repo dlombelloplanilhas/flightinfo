@@ -134,7 +134,10 @@ async function getByAircraft(aircraft) {
       });
     });
 
-    return { source: url, data: unificarVoosOffshore(flights) };
+    return {
+      source: url,
+      data: unificarVoosOffshore(flights)
+    };
 
   } catch (error) {
     console.error('Erro ao buscar dados do histórico da aeronave:', error);
@@ -142,48 +145,56 @@ async function getByAircraft(aircraft) {
   }
 }
 
+
 function unificarVoosOffshore(flights) {
+  flights = flights.reverse()
+
   const resultado = [];
-  let skipNext = false;
+  let vooUnificado = {}
 
   for (let i = 0; i < flights.length; i++) {
-    if (skipNext) {
-      skipNext = false;
+    const vooAtual = flights[i];
+    if (!vooAtual.origin) { continue }
+
+    const decolouDeAeroporto = vooAtual.origin && !vooAtual.origin.includes("Near");
+    const pousouEmAeroporto = vooAtual.destination && !vooAtual.destination.includes("Near") && !vooAtual.destination.includes("Plataforma")
+
+    vooAtual.departure = vooAtual.departure.replace("First seen ", "")
+    vooAtual.arrival = vooAtual.arrival.replace("Last seen ", "")
+
+    if (vooAtual.duration == "En Route") {
+      resultado.push(vooAtual)
       continue;
     }
 
-    const atual = flights[i];
-    const proximo = flights[i + 1];
-
-    const decolouDePlataforma = atual.departure.includes("First seen");
-    const pousouEmPlataforma = proximo && proximo.arrival.includes("Last seen");
-
-    if (decolouDePlataforma && pousouEmPlataforma) {
-
-      const duration = atual.duration == "En Route" ? atual.duration :
-        calcularDuracaoVoo(proximo.departure.replace("First seen ", ""), atual.arrival.replace("Last seen ", ""), atual.date)
-
-      // Criar voo unificado
-      const vooUnificado = {
-        date: atual.date,
-        aircraftType: atual.aircraftType || proximo.aircraftType,
-        origin: proximo.origin || atual.origin,
-        destination: atual.destination,
-        departure: proximo.departure.replace("First seen ", ""),
-        arrival: atual.arrival.replace("Last seen ", ""),
-        duration: duration,
-        status: atual.status || proximo.status
-      };
-
-      resultado.push(vooUnificado);
-      skipNext = true; // Pular o próximo, pois já foi usado
-    } else {
-      // Sem necessidade de unir, manter registro como está
-      resultado.push(atual);
+    if (decolouDeAeroporto && pousouEmAeroporto) {
+      resultado.push(vooAtual);
+      continue;
     }
+
+    if (decolouDeAeroporto) {
+      vooUnificado = vooAtual
+      continue;
+    }
+
+    if (!decolouDeAeroporto && !pousouEmAeroporto) {
+      continue;
+    }
+
+    if (pousouEmAeroporto && vooUnificado.origin) {
+      vooUnificado.destination = vooAtual.destination
+      vooUnificado.arrival = vooAtual.arrival
+      vooUnificado.duration = calcularDuracaoVoo(vooUnificado.departure, vooAtual.arrival, vooUnificado.date)
+      vooUnificado.status = vooAtual.status
+      resultado.push(vooUnificado);
+      vooUnificado = {}
+      continue;
+    }
+
+    resultado.push(vooAtual);
   }
 
-  return resultado;
+  return resultado.reverse()
 }
 
 /**
