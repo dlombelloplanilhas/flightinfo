@@ -238,9 +238,9 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
     const [hours, minutes] = time.split(':');
     let hour24 = parseInt(hours);
 
-    if (period.toUpperCase() === 'PM' && hour24 !== 12) {
+    if (period?.toUpperCase() === 'PM' && hour24 !== 12) {
       hour24 += 12;
-    } else if (period.toUpperCase() === 'AM' && hour24 === 12) {
+    } else if (period?.toUpperCase() === 'AM' && hour24 === 12) {
       hour24 = 0;
     }
 
