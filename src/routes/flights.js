@@ -68,7 +68,7 @@ async function getByAirport(airport, aircraft) {
       const tds = $(tr).find('td');
       const values = tds.map((_, td) => $(td).text().trim().replace(/\s+/g, ' ')).get();
 
-      const [
+      let [
         aircraftId = "", aircraftType = "", destination = "",
         departure = "", status = "", arrival = ""
       ] = values;
@@ -76,6 +76,9 @@ async function getByAirport(airport, aircraft) {
       const normalizedId = aircraftId.replace(/-/g, '').toUpperCase();
 
       if (!aircraft || normalizedId.includes(aircraft)) {
+
+        departure = formatarHora(departure)
+        arrival = formatarHora(arrival)
 
         const duration = calcularDuracaoVoo(departure, arrival);
 
@@ -273,6 +276,13 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
   const minutos = String(duracaoMin % 60).padStart(2, '0');
 
   return `${horas}:${minutos}`;
+}
+
+function formatarHora(horaStr) {
+  return horaStr.replace(/(\d{1,2}:\d{2})([ap])\s*(-?\d{2})/i, (_, hora, meridiano, tz) => {
+    const periodo = meridiano.toUpperCase() === 'A' ? 'AM' : 'PM';
+    return `${hora}${periodo} ${tz}`;
+  });
 }
 
 module.exports = router;
