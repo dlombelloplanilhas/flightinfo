@@ -187,7 +187,7 @@ function unificarVoosOffshore(flights) {
     if (
       (vooAtual.duration == "En Route") ||
       (decolouDeAeroporto && pousouEmAeroporto) ||
-      (!decolouDeAeroporto && vooAtual.duration > '1:00')
+      (vooAtual.duration > '1:00')
     ) {
       resultado.push(vooAtual);
       continue;
