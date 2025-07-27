@@ -17,40 +17,78 @@ const axiosHeaders = {
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
 };
 
-// GET /flights?airport=SBME&aircraft=PROHR
 router.get('/', async (req, res) => {
   const { airport, aircraft } = req.query;
 
   if (!airport && !aircraft) {
     return res.status(400).json({
       error: "Você deve informar pelo menos o parâmetro 'airport' ou 'aircraft'.",
-      exemple: 'https://flightinfo.onrender.com/flights?airport=SBME&aircraft=PROHR'
+      example: 'https://flightinfo.onrender.com/flights?airport=SBME,SBVT&aircraft=PROHR,PSCDU'
     });
   }
 
   try {
-    let result;
+    const airports = airport ? airport.split(' ').join('').split(',') : [];
+    const aircrafts = aircraft ? aircraft.split(' ').join('').split(',') : [];
 
-    if (airport) {
-      result = await getByAirport(airport, aircraft);
-    } else if (aircraft) {
-      result = await getByAircraft(aircraft);
-    }
+    // Chama todos os getByAirport em paralelo
+    const airportResults = await Promise.all(
+      airports.map(ap => getByAirport(ap, aircrafts))
+    );
 
-    res.json(result);
+    // Chama todos os getByAircraft em paralelo
+    const aircraftResults = await Promise.all(
+      aircrafts.map(async ac => {
+        if (ac && ac.length === 3) {
+          for (const prefix of ['PR', 'PS', 'PP']) {
+            let aircraftId = prefix + ac.trim().toUpperCase();
+            try {
+              const res = await getByAircraft(aircraftId);
+              if (res?.data && res.data.length > 0) {
+                return res; // Retorna o resultado completo (com data, source, error)
+              }
+            } catch (error) {
+              console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+            }
+          }
+        }
+
+        // Retorna um objeto vazio se não encontrou nada
+        return { data: [], source: null, error: null };
+      })
+    );
+
+    // Unifica os dados válidos - CORREÇÃO PRINCIPAL AQUI
+    const data = [
+      ...airportResults.flatMap(r => r?.data || []), // Remove .length
+      ...aircraftResults.flatMap(r => r?.data || []) // Remove .length
+    ];
+
+    const source = [
+      ...airportResults.map(r => r?.source).filter(Boolean),
+      ...aircraftResults.map(r => r?.source).filter(Boolean)
+    ];
+
+    const error = [
+      ...airportResults.map(r => r?.error).filter(Boolean),
+      ...aircraftResults.map(r => r?.error).filter(Boolean)
+    ];
+
+    // Ordena por data e horário
+    const dadosOrdenados = data.sort((a, b) => {
+      let dataStrA = `${a.date} ${a.departure}`;
+      let dataStrB = `${b.date} ${b.departure}`;
+      return dataStrB.localeCompare(dataStrA);
+    });
+
+    res.json({ error, total: dadosOrdenados.length, source, data: dadosOrdenados });
+
   } catch (error) {
     console.error('Erro geral:', error);
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
-
-// ------------------------------
-// Funções auxiliares de scraping
-// ------------------------------
-
-async function getByAirport(airport, aircraft) {
-  aircraft = aircraft ? aircraft.replace(/-/g, '').toUpperCase() : undefined;
-
+async function getByAirport(airport) {
   try {
     const url = `https://www.flightaware.com/live/airport/${airport}`;
     const response = await axios.get(url, { headers: axiosHeaders });
@@ -58,7 +96,7 @@ async function getByAirport(airport, aircraft) {
 
     const departuresSection = $('#departures-board');
     if (!departuresSection.length) {
-      return { error: "Seção 'Departures' não encontrada." };
+      return { error: `Seção 'Departures' de ${airport} não encontrada.` };
     }
 
     const table = departuresSection.find('table').first();
@@ -75,23 +113,23 @@ async function getByAirport(airport, aircraft) {
 
       const normalizedId = aircraftId.replace(/-/g, '').toUpperCase();
 
-      if (!aircraft || normalizedId.includes(aircraft)) {
-        departure = formatarHora(departure)
-        arrival = formatarHora(arrival)
+      departure = formatTime(departure)
+      arrival = formatTime(arrival)
 
-        const duration = calcularDuracaoVoo(departure, arrival);
+      const duration = calcularDuracaoVoo(departure, arrival);
 
-        if (aircraftId) {
-          flights.push({
-            aircraftId: normalizedId,
-            aircraftType,
-            destination,
-            departure,
-            arrival,
-            duration,
-            status,
-          });
-        }
+      if (aircraftId) {
+        flights.push({
+          date: getDataPorHorarioUTC(departure),
+          aircraftId: normalizedId,
+          aircraftType,
+          origin: airport,
+          destination,
+          departure,
+          arrival,
+          duration,
+          status,
+        });
       }
     });
 
@@ -115,7 +153,7 @@ async function getByAircraft(aircraft) {
     const flights = [];
 
     if (!table.length) {
-      return { error: "Tabela de histórico não encontrada." };
+      return { error: `Tabela de histórico de ${aircraft} não encontrada.` };
     }
 
     table.find('tr').slice(1).each((_, tr) => {
@@ -127,25 +165,34 @@ async function getByAircraft(aircraft) {
         departure = "", arrival = "", duration = "", status = ""
       ] = values;
 
-      departure = formatarHora(departure)
-      arrival = formatarHora(arrival)
+      if (departure) {
+        departure = formatTime(departure)
+        arrival = formatTime(arrival)
+        date = formatDateToDefault(date)
 
-      flights.push({
-        date,
-        aircraftType,
-        origin,
-        destination,
-        departure,
-        arrival,
-        duration,
-        status,
-      });
+        flights.push({
+          date,
+          aircraftId: aircraft,
+          aircraftType,
+          origin,
+          destination,
+          departure,
+          arrival,
+          duration,
+          status,
+        });
+      }
     });
 
-    return {
-      source: url,
-      data: unificarVoosOffshore(flights)
-    };
+    if (flights.length) {
+      return {
+        source: url,
+        data: unificarVoosOffshore(flights)
+      };
+    } else {
+      return { error: `Tabela de histórico de ${aircraft} não encontrada.` };
+    }
+
 
   } catch (error) {
     console.error('Erro ao buscar dados do histórico da aeronave:', error);
@@ -223,36 +270,6 @@ function unificarVoosOffshore(flights) {
   return resultado.reverse()
 }
 
-function formatarHora(horaStr) {
-  if (!horaStr.includes(':')) return '';
-
-  horaStr = horaStr.replace(/First seen\s+/i, '')
-    .replace(/Last seen\s+/i, '')
-    .replace(/\(\?\)/g, '')
-    .trim();
-
-  return horaStr.replace(/(\d{1,2}):(\d{2})\s*([ap]m?|[AP]M?)/g, (_, h, m, p) => {
-    const meridiano = p.toUpperCase().startsWith('A') ? 'AM' : 'PM';
-    return convertTo24h(`${h}:${m}${meridiano}`);
-  });
-
-}
-
-// Função para converter AM/PM para 24h
-function convertTo24h(timeStr) {
-  const [time, period] = timeStr.split(/([AP]M)/i);
-  const [hours, minutes] = time.split(':');
-  let hour24 = parseInt(hours);
-
-  if (period?.toUpperCase() === 'PM' && hour24 !== 12) {
-    hour24 += 12;
-  } else if (period?.toUpperCase() === 'AM' && hour24 === 12) {
-    hour24 = 0;
-  }
-
-  return `${hour24.toString().padStart(2, '0')}:${minutes}`;
-}
-
 function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YYYY')) {
   if (!arrival || /unknown/i.test(arrival)) {
     return "";
@@ -289,5 +306,120 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
 
   return `${horas}:${minutos}`;
 }
+
+function formatTime(horaStr) {
+  if (!horaStr.includes(':')) return '';
+
+  horaStr = horaStr.replace(/First seen\s+/i, '')
+    .replace(/Last seen\s+/i, '')
+    .replace(/\(\?\)/g, '')
+    .trim();
+
+  return horaStr.replace(/(\d{1,2}):(\d{2})\s*([ap]m?|[AP]M?)/g, (_, h, m, p) => {
+    const meridiano = p.toUpperCase().startsWith('A') ? 'AM' : 'PM';
+    return formatTimeTo24h(`${h}:${m}${meridiano}`);
+  });
+}
+
+function formatTimeTo24h(timeStr) {
+  const [time, period] = timeStr.split(/([AP]M)/i);
+  const [hours, minutes] = time.split(':');
+  let hour24 = parseInt(hours);
+
+  if (period?.toUpperCase() === 'PM' && hour24 !== 12) {
+    hour24 += 12;
+  } else if (period?.toUpperCase() === 'AM' && hour24 === 12) {
+    hour24 = 0;
+  }
+
+  return `${hour24.toString().padStart(2, '0')}:${minutes}`;
+}
+
+function formatDateToDefault(dataStr) {
+  const meses = {
+    // Inglês
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    // Português
+    jan: '01', fev: '02', mar: '03', abr: '04', mai: '05', jun: '06',
+    jul: '07', ago: '08', set: '09', out: '10', nov: '11', dez: '12'
+  };
+
+  const regex = /^(\d{1,2})[-\/\s]([a-zA-Z]{3})[-\/\s](\d{4})$/;
+
+  const match = dataStr.trim().match(regex);
+  if (!match) {
+    console.error('Formato de data inválido:', dataStr);
+    return null;
+  }
+
+  let [_, dia, mesAbrev, ano] = match;
+  dia = dia.padStart(2, '0');
+  const mesNum = meses[mesAbrev.toLowerCase()];
+
+  if (!mesNum) {
+    console.error('Mês não reconhecido:', mesAbrev);
+    return null;
+  }
+
+  return `${ano}-${mesNum}-${dia}`;
+}
+
+function getDataPorHorarioUTC(departure) {
+  const match = localTimeToUTC(departure)
+
+  const [_, horaStr, minutoStr] = match;
+  const hora = parseInt(horaStr, 10);
+  const minuto = parseInt(minutoStr, 10);
+
+  // Hora de agora em UTC
+  const agoraUTC = new Date();
+  const totalAgoraMinutos = agoraUTC.getUTCHours() * 60 + agoraUTC.getUTCMinutes();
+
+  // Horário de partida em minutos
+  const totalDepartureMinutos = hora * 60 + minuto;
+
+  // Define data-base: hoje ou ontem
+  let dataUTC = new Date(Date.UTC(
+    agoraUTC.getUTCFullYear(),
+    agoraUTC.getUTCMonth(),
+    agoraUTC.getUTCDate()
+  ));
+
+  if (totalDepartureMinutos > totalAgoraMinutos) {
+    // Se ainda vai acontecer → é da data anterior
+    dataUTC.setUTCDate(dataUTC.getUTCDate() - 1);
+  }
+
+  // Retorna no formato YYYYMMDD
+  const ano = dataUTC.getUTCFullYear();
+  const mes = String(dataUTC.getUTCMonth() + 1).padStart(2, '0');
+  const dia = String(dataUTC.getUTCDate()).padStart(2, '0');
+
+  return `${ano}-${mes}-${dia}`;
+}
+
+function localTimeToUTC(horaStr) {
+  const match = horaStr.match(/^(\d{1,2}):(\d{2})\s*(-?\d{1,2})$/);
+  if (!match) {
+    console.error('Formato de hora inválido:', horaStr);
+    return null;
+  }
+
+  let [_, hora, minuto, offset] = match;
+  hora = parseInt(hora);
+  minuto = parseInt(minuto);
+  offset = parseInt(offset);
+
+  // Converte para UTC
+  let horaUTC = hora + offset * -1;
+
+  // Ajuste se passar de 24h ou for negativo
+  if (horaUTC >= 24) horaUTC -= 24;
+  if (horaUTC < 0) horaUTC += 24;
+
+  return `${horaUTC.toString().padStart(2, '0')}${minuto.toString().padStart(2, '0')}Z`;
+}
+
 
 module.exports = router;
