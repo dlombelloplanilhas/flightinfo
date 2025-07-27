@@ -76,7 +76,6 @@ async function getByAirport(airport, aircraft) {
       const normalizedId = aircraftId.replace(/-/g, '').toUpperCase();
 
       if (!aircraft || normalizedId.includes(aircraft)) {
-
         departure = formatarHora(departure)
         arrival = formatarHora(arrival)
 
@@ -123,10 +122,13 @@ async function getByAircraft(aircraft) {
       const tds = $(tr).find('td');
       const values = tds.map((_, td) => $(td).text().trim().replace(/\s+/g, ' ')).get();
 
-      const [
+      let [
         date = "", aircraftType = "", origin = "", destination = "",
         departure = "", arrival = "", duration = "", status = ""
       ] = values;
+
+      departure = formatarHora(departure)
+      arrival = formatarHora(arrival)
 
       flights.push({
         date,
@@ -151,7 +153,6 @@ async function getByAircraft(aircraft) {
   }
 }
 
-
 function unificarVoosOffshore(flights) {
   flights = flights.reverse()
 
@@ -170,9 +171,6 @@ function unificarVoosOffshore(flights) {
 
     const decolouDeAeroporto = isAeroporto(vooAtual.origin);
     const pousouEmAeroporto = isAeroporto(vooAtual.destination);
-
-    vooAtual.departure = vooAtual.departure.replace("First seen ", "").replace("(?)", "").trim()
-    vooAtual.arrival = vooAtual.arrival.replace("Last seen ", "").replace("(?)", "").trim()
 
     if (decolouDeAeroporto && vooUnificado.origin) {
       resultado.push(vooUnificado);
@@ -225,6 +223,35 @@ function unificarVoosOffshore(flights) {
   return resultado.reverse()
 }
 
+function formatarHora(horaStr) {
+  if (!horaStr.includes(':')) return '';
+
+  horaStr = horaStr.replace(/First seen\s+/i, '')
+    .replace(/Last seen\s+/i, '')
+    .replace(/\(\?\)/g, '')
+    .trim();
+
+  return horaStr.replace(/(\d{1,2}):(\d{2})\s*([ap]m?|[AP]M?)/g, (_, h, m, p) => {
+    const meridiano = p.toUpperCase().startsWith('A') ? 'AM' : 'PM';
+    return convertTo24h(`${h}:${m}${meridiano}`);
+  });
+
+}
+
+// Função para converter AM/PM para 24h
+function convertTo24h(timeStr) {
+  const [time, period] = timeStr.split(/([AP]M)/i);
+  const [hours, minutes] = time.split(':');
+  let hour24 = parseInt(hours);
+
+  if (period?.toUpperCase() === 'PM' && hour24 !== 12) {
+    hour24 += 12;
+  } else if (period?.toUpperCase() === 'AM' && hour24 === 12) {
+    hour24 = 0;
+  }
+
+  return `${hour24.toString().padStart(2, '0')}:${minutes}`;
+}
 
 function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YYYY')) {
   if (!arrival || /unknown/i.test(arrival)) {
@@ -235,28 +262,13 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
     return "En Route";
   }
 
-  // Função para converter AM/PM para 24h
-  function convertTo24h(timeStr) {
-    const [time, period] = timeStr.split(/([AP]M)/i);
-    const [hours, minutes] = time.split(':');
-    let hour24 = parseInt(hours);
-
-    if (period?.toUpperCase() === 'PM' && hour24 !== 12) {
-      hour24 += 12;
-    } else if (period?.toUpperCase() === 'AM' && hour24 === 12) {
-      hour24 = 0;
-    }
-
-    return `${hour24.toString().padStart(2, '0')}:${minutes}`;
-  }
-
   // Separar horário e offset
   const [departureTime, departureOffset] = departure.split(/ ([-+]\d{2})$/).filter(Boolean);
   const [arrivalTime, arrivalOffset] = arrival.split(/ ([-+]\d{2})$/).filter(Boolean);
 
   // Converter para formato 24h
-  const departureTime24h = convertTo24h(departureTime);
-  const arrivalTime24h = convertTo24h(arrivalTime);
+  const departureTime24h = (departureTime);
+  const arrivalTime24h = (arrivalTime);
 
   const offsetDep = parseInt(departureOffset) || 0;
   const offsetArr = parseInt(arrivalOffset) || 0;
@@ -276,13 +288,6 @@ function calcularDuracaoVoo(departure, arrival, date = dayjs().format('DD-MMM-YY
   const minutos = String(duracaoMin % 60).padStart(2, '0');
 
   return `${horas}:${minutos}`;
-}
-
-function formatarHora(horaStr) {
-  return horaStr.replace(/(\d{1,2}:\d{2})([ap])\s*(-?\d{2})/i, (_, hora, meridiano, tz) => {
-    const periodo = meridiano.toUpperCase() === 'A' ? 'AM' : 'PM';
-    return `${hora}${periodo} ${tz}`;
-  });
 }
 
 module.exports = router;
