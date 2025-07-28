@@ -20,6 +20,88 @@ const axiosHeaders = {
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
 };
 
+// router.get('/', async (req, res) => {
+//   const { airport, aircraft } = req.query;
+
+//   if (!airport && !aircraft) {
+//     return res.status(400).json({
+//       error: "Você deve informar pelo menos o parâmetro 'airport' ou 'aircraft'.",
+//       example: 'https://flightinfo.onrender.com/flights?airport=SBME,SBVT&aircraft=PROHR,PSCDU'
+//     });
+//   }
+
+//   try {
+//     const parseCode = str => str ? str.replace(/[-\s]/g, '').toUpperCase().split(',').filter(Boolean) : [];
+//     const airports = parseCode(airport);
+//     const aircrafts = parseCode(aircraft);
+
+//     // Chama todos os getByAirport em paralelo
+//     const airportResults = await Promise.all(
+//       airports.map(ap => getByAirport(ap))
+//     );
+
+//     // Chama todos os getByAircraft em paralelo
+//     const aircraftResults = await Promise.all(
+//       aircrafts.map(async ac => {
+//         if (ac && ac.length === 3) {
+//           for (const prefix of ['PR', 'PS', 'PP']) {
+//             let aircraftId = (prefix + ac).trim().toUpperCase().replace('-', '');
+//             try {
+//               const res = await getByAircraft(aircraftId);
+//               if (res?.data && res.data.length > 0) {
+//                 return res;
+//               }
+//             } catch (error) {
+//               console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+//             }
+//           }
+//         } else {
+//           let aircraftId = ac.trim().toUpperCase().replace('-', '');
+//           try {
+//             const res = await getByAircraft(aircraftId);
+//             if (res?.data && res.data.length > 0) {
+//               return res;
+//             }
+//           } catch (error) {
+//             console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+//           }
+//         }
+//         // Retorna um objeto vazio se não encontrou nada
+//         return { data: [], source: null, error: null };
+//       })
+//     );
+
+//     // Unifica os dados válidos - CORREÇÃO PRINCIPAL AQUI
+//     const data = [
+//       ...airportResults.flatMap(r => r?.data || []), // Remove .length
+//       ...aircraftResults.flatMap(r => r?.data || []) // Remove .length
+//     ];
+
+//     const source = [
+//       ...airportResults.map(r => r?.source).filter(Boolean),
+//       ...aircraftResults.map(r => r?.source).filter(Boolean)
+//     ];
+
+//     const error = [
+//       ...airportResults.map(r => r?.error).filter(Boolean),
+//       ...aircraftResults.map(r => r?.error).filter(Boolean)
+//     ];
+
+//     // Ordena por data e horário
+//     const dadosOrdenados = data.sort((a, b) => {
+//       let dataStrA = `${a.date} ${a.departure}`;
+//       let dataStrB = `${b.date} ${b.departure}`;
+//       return dataStrB.localeCompare(dataStrA);
+//     });
+
+//     res.json({ error, total: dadosOrdenados.length, source, data: dadosOrdenados });
+
+//   } catch (error) {
+//     console.error('Erro geral:', error);
+//     res.status(500).json({ error: 'Erro interno no servidor' });
+//   }
+// });
+
 router.get('/', async (req, res) => {
   const { airport, aircraft } = req.query;
 
@@ -31,60 +113,90 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const airports = airport ? airport.split(' ').join('').split(',') : [];
-    const aircrafts = aircraft ? aircraft.split(' ').join('').split(',') : [];
+    const parseCode = str => str ? str.replace(/[-\s]/g, '').toUpperCase().split(',').filter(Boolean) : [];
+    const airports = parseCode(airport);
+    const aircrafts = parseCode(aircraft);
 
-    // Chama todos os getByAirport em paralelo
-    const airportResults = await Promise.all(
-      airports.map(ap => getByAirport(ap, aircrafts))
-    );
+    let data = [];
+    let source = [];
+    let error = [];
 
-    // Chama todos os getByAircraft em paralelo
-    const aircraftResults = await Promise.all(
-      aircrafts.map(async ac => {
-        if (ac && ac.length === 3) {
-          for (const prefix of ['PR', 'PS', 'PP']) {
-            let aircraftId = (prefix + ac).trim().toUpperCase().replace('-', '');
+    // Se há aeroportos, busque apenas os dados dos aeroportos
+    if (airports.length > 0) {
+      // Chama todos os getByAirport em paralelo
+      const airportResults = await Promise.all(
+        airports.map(ap => getByAirport(ap))
+      );
+
+      // Coleta os dados dos aeroportos
+      const airportData = airportResults.flatMap(r => r?.data || []);
+
+      // Se há aeronaves especificadas, filtra os dados dos aeroportos pelos aircraftId
+      if (aircrafts.length > 0) {
+        // Expande as aeronaves de 3 caracteres com prefixos
+        const expandedAircrafts = [];
+
+        aircrafts.forEach(ac => {
+          if (ac && ac.length === 3) {
+            // Adiciona as versões com prefixos PR, PS, PP
+            expandedAircrafts.push(`PR${ac}`, `PS${ac}`, `PP${ac}`);
+          } else {
+            // Adiciona a aeronave como está
+            expandedAircrafts.push(ac);
+          }
+        });
+
+        // Filtra os dados dos aeroportos pelos aircraftId especificados
+        data = airportData.filter(item =>
+          expandedAircrafts.some(aircraftId =>
+            item.aircraftId && item.aircraftId.toUpperCase() === aircraftId.toUpperCase()
+          )
+        );
+      } else {
+        // Se não há aeronaves especificadas, usa todos os dados dos aeroportos
+        data = airportData;
+      }
+
+      // Coleta source e error dos aeroportos
+      source = airportResults.map(r => r?.source).filter(Boolean);
+      error = airportResults.map(r => r?.error).filter(Boolean);
+
+    } else {
+      // Se não há aeroportos, busca apenas por aeronaves (comportamento original)
+      const aircraftResults = await Promise.all(
+        aircrafts.map(async ac => {
+          if (ac && ac.length === 3) {
+            for (const prefix of ['PR', 'PS', 'PP']) {
+              let aircraftId = (prefix + ac);
+              try {
+                const res = await getByAircraft(aircraftId);
+                if (res?.data && res.data.length > 0) {
+                  return res;
+                }
+              } catch (error) {
+                console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+              }
+            }
+          } else {
+            let aircraftId = ac;
             try {
               const res = await getByAircraft(aircraftId);
               if (res?.data && res.data.length > 0) {
                 return res;
               }
             } catch (error) {
-              console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+              console.log(`Tentativa com ${aircraftId} falhou:`, error.message);
             }
           }
-        } else {
-          let aircraftId = ac.trim().toUpperCase().replace('-', '');
-          try {
-            const res = await getByAircraft(aircraftId);
-            if (res?.data && res.data.length > 0) {
-              return res;
-            }
-          } catch (error) {
-            console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
-          }
-        }
-        // Retorna um objeto vazio se não encontrou nada
-        return { data: [], source: null, error: null };
-      })
-    );
+          // Retorna um objeto vazio se não encontrou nada
+          return { data: [], source: null, error: null };
+        })
+      );
 
-    // Unifica os dados válidos - CORREÇÃO PRINCIPAL AQUI
-    const data = [
-      ...airportResults.flatMap(r => r?.data || []), // Remove .length
-      ...aircraftResults.flatMap(r => r?.data || []) // Remove .length
-    ];
-
-    const source = [
-      ...airportResults.map(r => r?.source).filter(Boolean),
-      ...aircraftResults.map(r => r?.source).filter(Boolean)
-    ];
-
-    const error = [
-      ...airportResults.map(r => r?.error).filter(Boolean),
-      ...aircraftResults.map(r => r?.error).filter(Boolean)
-    ];
+      data = aircraftResults.flatMap(r => r?.data || []);
+      source = aircraftResults.map(r => r?.source).filter(Boolean);
+      error = aircraftResults.map(r => r?.error).filter(Boolean);
+    }
 
     // Ordena por data e horário
     const dadosOrdenados = data.sort((a, b) => {
