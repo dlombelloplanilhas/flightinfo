@@ -44,18 +44,27 @@ router.get('/', async (req, res) => {
       aircrafts.map(async ac => {
         if (ac && ac.length === 3) {
           for (const prefix of ['PR', 'PS', 'PP']) {
-            let aircraftId = prefix + ac.trim().toUpperCase();
+            let aircraftId = (prefix + ac).trim().toUpperCase().replace('-', '');
             try {
               const res = await getByAircraft(aircraftId);
               if (res?.data && res.data.length > 0) {
-                return res; // Retorna o resultado completo (com data, source, error)
+                return res;
               }
             } catch (error) {
               console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
             }
           }
+        } else {
+          let aircraftId = ac.trim().toUpperCase().replace('-', '');
+          try {
+            const res = await getByAircraft(aircraftId);
+            if (res?.data && res.data.length > 0) {
+              return res;
+            }
+          } catch (error) {
+            console.log(`Tentativa com ${prefix}${ac} falhou:`, error.message);
+          }
         }
-
         // Retorna um objeto vazio se não encontrou nada
         return { data: [], source: null, error: null };
       })
