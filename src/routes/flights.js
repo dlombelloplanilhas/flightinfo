@@ -5,11 +5,14 @@ const cheerio = require('cheerio');
 const router = express.Router();
 
 const dayjs = require('dayjs');
-const customParseFormat = require('dayjs/plugin/customParseFormat');
 const utc = require('dayjs/plugin/utc');
+const customParseFormat = require('dayjs/plugin/customParseFormat');
+const timezone = require('dayjs/plugin/timezone');
 
-dayjs.extend(customParseFormat);
 dayjs.extend(utc);
+dayjs.extend(customParseFormat);
+dayjs.extend(timezone);
+
 
 const axiosHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/91.0.4472.124 Safari/537.36',
@@ -88,6 +91,7 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: 'Erro interno no servidor' });
   }
 });
+
 async function getByAirport(airport) {
   try {
     const url = `https://www.flightaware.com/live/airport/${airport}`;
@@ -366,60 +370,49 @@ function formatDateToDefault(dataStr) {
 }
 
 function getDataPorHorarioUTC(departure) {
-  const match = localTimeToUTC(departure)
+  // Parse do formato "14:20PM -3"
+  const regex = /(\d{1,2}):(\d{2})(AM|PM)?\s*(-?\d+)/;
+  const match = departure.match(regex);
 
-  const [_, horaStr, minutoStr] = match;
-  const hora = parseInt(horaStr, 10);
-  const minuto = parseInt(minutoStr, 10);
-
-  // Hora de agora em UTC
-  const agoraUTC = new Date();
-  const totalAgoraMinutos = agoraUTC.getUTCHours() * 60 + agoraUTC.getUTCMinutes();
-
-  // Horário de partida em minutos
-  const totalDepartureMinutos = hora * 60 + minuto;
-
-  // Define data-base: hoje ou ontem
-  let dataUTC = new Date(Date.UTC(
-    agoraUTC.getUTCFullYear(),
-    agoraUTC.getUTCMonth(),
-    agoraUTC.getUTCDate()
-  ));
-
-  if (totalDepartureMinutos > totalAgoraMinutos) {
-    // Se ainda vai acontecer → é da data anterior
-    dataUTC.setUTCDate(dataUTC.getUTCDate() - 1);
-  }
-
-  // Retorna no formato YYYYMMDD
-  const ano = dataUTC.getUTCFullYear();
-  const mes = String(dataUTC.getUTCMonth() + 1).padStart(2, '0');
-  const dia = String(dataUTC.getUTCDate()).padStart(2, '0');
-
-  return `${ano}-${mes}-${dia}`;
-}
-
-function localTimeToUTC(horaStr) {
-  const match = horaStr.match(/^(\d{1,2}):(\d{2})\s*(-?\d{1,2})$/);
   if (!match) {
-    console.error('Formato de hora inválido:', horaStr);
-    return null;
+    throw new Error('Formato inválido. Use formato como "14:20PM -3" ou "14:20 -3"');
   }
 
-  let [_, hora, minuto, offset] = match;
-  hora = parseInt(hora);
-  minuto = parseInt(minuto);
-  offset = parseInt(offset);
+  let [_, horaStr, minutoStr, periodo, offsetStr] = match;
+  let hora = parseInt(horaStr, 10);
+  const minuto = parseInt(minutoStr, 10);
+  const offset = parseInt(offsetStr, 10);
 
-  // Converte para UTC
-  let horaUTC = hora + offset * -1;
+  // Ajusta hora se for formato 12h (AM/PM)
+  if (periodo) {
+    if (periodo === 'PM' && hora !== 12) {
+      hora += 12;
+    } else if (periodo === 'AM' && hora === 12) {
+      hora = 0;
+    }
+  }
 
-  // Ajuste se passar de 24h ou for negativo
-  if (horaUTC >= 24) horaUTC -= 24;
-  if (horaUTC < 0) horaUTC += 24;
+  // Cria horário atual em UTC
+  const agoraUTC = dayjs.utc();
 
-  return `${horaUTC.toString().padStart(2, '0')}${minuto.toString().padStart(2, '0')}Z`;
+  // Cria horário de partida considerando o offset
+  // Se o offset é -3, significa que para converter para UTC precisamos somar 3 horas
+  const departureLocal = dayjs().hour(hora).minute(minuto).second(0).millisecond(0);
+  const departureUTC = departureLocal.subtract(offset, 'hour');
+
+  // Compara os horários em UTC
+  let dataResultado;
+
+  if (departureUTC.isAfter(agoraUTC)) {
+    // Se o horário de partida é maior que agora → usar data de ontem
+    dataResultado = agoraUTC.subtract(1, 'day');
+  } else {
+    // Se o horário de partida é menor ou igual → usar data de hoje
+    dataResultado = agoraUTC;
+  }
+
+  // Retorna no formato YYYY-MM-DD
+  return dataResultado.format('YYYY-MM-DD');
 }
-
 
 module.exports = router;
